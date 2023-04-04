@@ -1,0 +1,70 @@
+---
+- name: Deploy Jenkins and execute Jenkinsfile
+  hosts: jenkins_server
+  become: yes
+
+  tasks:
+  - name: Install Java
+    apt:
+      name: openjdk-11-jdk
+      state: present
+  
+  - name: Add Jenkins Debian repository key
+    apt_key:
+      url: https://pkg.jenkins.io/debian/jenkins.io.key
+      state: present
+
+  - name: Add Jenkins Debian repository
+    apt_repository:
+      repo: deb https://pkg.jenkins.io/debian-stable binary/
+      state: present
+  
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+
+  - name: Install Jenkins
+    apt:
+      name: jenkins
+      state: present
+      update_cache: yes
+  
+  - name: Start Jenkins service
+    service:
+      name: jenkins
+      state: started
+      enabled: yes
+
+  - name: Execute Jenkinsfile
+    jenkins_script:
+      url: http://localhost:8080/
+      user: admin
+      password: password
+      script: |
+        def job = Jenkins.instance.createProjectFromXML("example_job", '''
+          <flow-definition plugin="workflow-job@2.40">
+            <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.90">
+              <script>pipeline {
+                agent any
+                stages {
+                  stage('Build') {
+                    steps {
+                      sh 'javac HelloWorld.java'
+                      sh 'jar cvfe HelloWorld.jar HelloWorld *.class'
+                    }
+                  }
+                  stage('Archive') {
+                    steps {
+                      archiveArtifacts artifacts: 'HelloWorld.jar', fingerprint: true
+                    }
+                  }
+                }
+              }</script>
+            </definition>
+          </flow-definition>
+        ''')
+        def params = [
+          new StringParameterValue("ENVIRONMENT", "prod"),
+          new BooleanParameterValue("DEPLOY_NOW", true)
+        ]
+        job.scheduleBuild2(0, new Cause.UpstreamCause(), new ParametersAction(params))
